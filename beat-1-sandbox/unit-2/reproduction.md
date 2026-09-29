@@ -23,16 +23,71 @@ kpoon72
 
 **Claim comment**
 
-[Link to the comment where you claimed the issue. Use the comment's own permalink, not the
-issue page on its own. **Then paste the text of that comment underneath the link** — the
-pasted text is what this field is graded on, so copy across what you actually posted.]
+https://github.com/codepath/pathreview-ai301-fa26-s3/issues/72#issuecomment-5881939893
+
+I'd like to take #72 as my first Path Review contribution. I can see several classmates have claimed it too; per the course house rules I'll still do my own setup and post my own report.
+
+What I'll look at: `verify_password()` in `core/security.py` lets passlib's `UnknownHashError` escape when the stored hash isn't a format passlib recognizes, when it should fail closed and return `False`. The covering test is `test_verify_with_wrong_hash_format` in `tests/unit/test_security.py`, currently a strict `xfail` (manifest H-05), which calls `verify_password("password", "not_a_valid_bcrypt_hash")`.
+
+I haven't reproduced it yet. Next I'll fork the repo, set it up from its docs, and run that test with `--runxfail` on current `main`. I'll post a repro report here with my environment, the exact steps, and the output I get.
 
 **Reproduction comment**
 
-[Link to the comment where you posted your reproduction. It must record the environment
-(OS, relevant versions, code state), steps a stranger could follow, and what you observed.
-**Then paste the text of that comment underneath the link** — the pasted text is what this
-field is graded on, so copy across what you actually posted.]
+https://github.com/codepath/pathreview-ai301-fa26-s3/issues/72#issuecomment-5881947784
+
+Reproduction report for #72. **Result: reproduced** on current `main`: `verify_password()` raises `passlib.exc.UnknownHashError` for a malformed stored hash instead of returning `False`.
+
+**Environment**
+
+- macOS 26.6.1 (build 25G76), Apple Silicon (arm64)
+- Python 3.13.13 (Homebrew)
+- passlib 1.7.4, bcrypt 4.3.0, pytest 9.1.1
+- Code: my fork `kpoon72/pathreview-ai301-fa26-s3` at commit `2f4e82f` (same as upstream `main`, no local changes)
+
+**Steps** (from a fresh clone of the fork)
+
+I followed the Python part of `make setup` from `docs/SETUP.md`. I skipped Docker, the migrations, and the frontend, since `core/security.py` and this unit test don't touch them.
+
+```bash
+python3.13 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip setuptools wheel
+.venv/bin/pip install -e ".[dev]"
+```
+
+1. Run the covering test as it's committed (strict `xfail`, manifest H-05):
+
+```
+$ .venv/bin/pytest "tests/unit/test_security.py::TestSecurity::test_verify_with_wrong_hash_format"
+======================== 1 xfailed, 1 warning in 1.77s =========================
+```
+
+2. Run it again with the xfail marker ignored, so the real behavior shows:
+
+```
+$ .venv/bin/pytest "tests/unit/test_security.py::TestSecurity::test_verify_with_wrong_hash_format" --runxfail
+>           raise exc.UnknownHashError("hash could not be identified")
+E           passlib.exc.UnknownHashError: hash could not be identified
+
+.venv/lib/python3.13/site-packages/passlib/context.py:1132: UnknownHashError
+FAILED tests/unit/test_security.py::TestSecurity::test_verify_with_wrong_hash_format
+========================= 1 failed, 1 warning in 0.25s =========================
+```
+
+3. Calling the function directly, with a control on a real bcrypt hash first:
+
+```
+$ .venv/bin/python -c 'from core.security import verify_password, hash_password; print(verify_password("password", hash_password("password")), verify_password("wrong", hash_password("password"))); verify_password("password", "not_a_valid_bcrypt_hash")'
+True False
+Traceback (most recent call last):
+  ...
+passlib.exc.UnknownHashError: hash could not be identified
+```
+
+**Expected:** `verify_password("password", "not_a_valid_bcrypt_hash")` returns `False`, the same way a wrong password does, which is what the function's docstring promises ("True if password matches, False otherwise").
+
+**Actual:** the call raises `UnknownHashError` from passlib's `identify_record` (shown above). A valid hash works as expected (`True` for the right password, `False` for a wrong one), so the failure is specific to a hash passlib can't identify.
+
+Next I'll look at how `verify_password` calls `pwd_context.verify` and what it should catch so it fails closed.
 
 ## Eval iterations
 
