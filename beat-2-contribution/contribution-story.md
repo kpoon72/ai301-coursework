@@ -9,8 +9,7 @@ files and no evidence uploads are part of Assignment 5.
 
 **Contribution Number:** [1]
 **Student:** [Student name]
-**GitHub Username:** [your GitHub username, exactly as it appears on your profile - no @, no
-profile URL. Your comments upstream are identified by this name.]
+**GitHub Username:** kpoon72
 **Issue:** [GitHub issue link]
 **Pull Request:** [GitHub PR link, once opened]
 
@@ -55,10 +54,9 @@ happened; these entries are the toolkit's own timeline.
 All four entries are graded. Keep every heading below, and fill each
 one in the week it belongs to.
 
-**Unit 5: [one line on the tool work]**
+**Unit 5: Built issue-scout's search strategy on my Unit 1 rubric, then patched both after two real scans (2026-10-14)**
 
-[2-4 sentences: what you built (the scout, your strategy), what broke
-or fell short, what changed because of it.]
+I installed the scout over my Unit 1 issue-select skill and wrote a search strategy from my fit profile: `gh search issues` queries for newcomer issues and lightly discussed bugs in 15 named Python library, CLI and backend orgs (a plain "good first issue + Python" search returned 10,729 results, mostly one-person repos), ranked with newcomer labels first and fewest comments first. My first scan accepted 0 of 5, because every pick already had an open PR (poetry#8864 had three), and my AI-policy check graded `unclear` whenever a repo had no root `CONTRIBUTING.md`, even though my rubric says silence passes. I added `-- -linked:pr` to every query (query 1 dropped from 17 results to 1), and changed the rubric to also check `.github/`, `docs/` and the repo's community profile, with no policy counting as a pass. A second scan confirmed both fixes but still accepted 0 of 5, because the remaining claims sat in comment text that ranking can't read, so I'm using the scout to grade issues I pick by hand rather than to find them.
 
 **Unit 6: [one line on the tool work]**
 
