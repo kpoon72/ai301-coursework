@@ -80,7 +80,7 @@ My two scout scans of named Python orgs accepted 0 of 10, and the first 8 picks 
 
 The issue fits what my profile asks for: a small Python backend change in the collector, with the exact environment variable, default and method already written down by the maintainer who opened it, and an existing unit test file (`test_collector.py`) to extend. It's a feature rather than a bug fix, but it has the same shape as my `verify_password` fix: one method behaving wrongly under a specific condition (here, too many running tasks). I hope to learn how a real Python project handles config through environment variables and how a container health check works from the inside. My honest read of the scout: as a finder it failed in the wild, because during Hacktoberfest the claims sit in comment text that its ranking can't see. As a grader it was right every time I checked it by hand, including closed issues and open PRs. The pre-check I did with the API is what actually found this issue, and it should become a cheap stage in the scout before any grading.
 
-**Claim comment:** claim pending, 2026-10-21
+**Claim comment:** https://github.com/ICTU/quality-time/issues/8507#issuecomment-6330724916
 
 **Toolkit**
 
