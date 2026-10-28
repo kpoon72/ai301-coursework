@@ -11,7 +11,7 @@ files and no evidence uploads are part of Assignment 5.
 **Student:** Kamal Poon
 **GitHub Username:** kpoon72
 **Issue:** https://github.com/ICTU/quality-time/issues/8507
-**Pull Request:** [GitHub PR link, once opened]
+**Pull Request:** https://github.com/ICTU/quality-time/pull/14917
 
 One repository, built across units 5 to 8, telling the whole story of your real
 contribution. Fill it as you work, not at the end — the sections below ask for evidence that
@@ -62,10 +62,9 @@ I installed the scout over my Unit 1 issue-select skill and wrote a search strat
 
 I merged my three copies of the voice guide into one at `~/.claude/voice-guard/voice-guide.md`, added Upstream rules for claims, questions and pings, and installed the guard as a `PreToolUse` hook; the wiring test (`gh issue comment --help`) was stopped as expected. The first real check stopped my claim draft under my own rule "Promise the investigation, not the fix" (its opening line read as promising the whole fix, even though repro-check had accepted it), so I rewrote the opening around the first step, a unit test, and it passed. I also reworded my never-post rule "A deadline" to "a deadline for a fix or PR", since a claim now has to say when I'll report back, and the old wording would have stopped "within a week". For `CLAUDE.local.md` I read the collector code myself instead of running an orientation agent, because the issue already named the files, and while writing the file I found `healthcheck.py`, the script that actually reads the health file, which the issue doesn't mention.
 
-**Unit 7: [one line on the tool work]**
+**Unit 7: Wrote a four-check ship manifest for quality-time and opened my PR through the ship-gate (2026-10-28)**
 
-[2-4 sentences: the ship-gate and your gate manifest. What it produced
-on your real branch, what fought you, what changed because of it.]
+My manifest runs the same `just test` and `just check` that the repo's CI runs in `components/collector` and `docs`, plus markdownlint on the two docs files I change, each in a fresh shell. The ship-gate passed my branch twice, once by hand at 18:37 and once through the hook when the PR opened: all four checks ok, and pr-precheck accepted all 9 checks, with the realigned docs table as the closest call. What fought me was the docs check passing while hiding a failure: the repo's `lint` script ends in `; lockfile-lint`, so markdownlint was crashing on my Node v19 and still showing OK; running it on Node 26 as its own row caught a real table error in my change, and I moved the 20 errors that also fail on master into the excluded table instead of dropping the check. One more thing slipped past both hooks: the Claude session I used to open the PR added a "🤖 Generated with Claude Code" footer to my description on its own, and neither guard is meant to catch a line like that, so from now on I read the final body file right before posting.
 
 **Unit 8: [one line on the tool work]**
 
@@ -242,27 +241,22 @@ The docs took longer than the code. My first version of the new environment vari
 
 ## Pull Request
 
-**PR Link:** [GitHub PR URL when opened]
+**PR Link:** https://github.com/ICTU/quality-time/pull/14917
 
-**PR Description:** [what the PR says; much of the content above
-adapts into it]
+**PR Description:** Title: "Report the collector as unhealthy when too many tasks are running to resolve #8507" (CONTRIBUTING.md asks for a short description plus the issue number). The description says the PR adds `COLLECTOR_RUNNING_TASKS_HEALTHY_THRESHOLD` (default 120) and makes `Collector.record_health` skip writing the health check timestamp when more tasks than that are running, so `healthcheck.py` marks the container unhealthy. It includes `Fixes #8507`, then a list of changes file by file, what I deliberately didn't change, and a note that the realigned docs table re-pads every row but adds only one. Next come my before/after repro output (`reported healthy: True` on master, `False` on the branch), the new test's failure without the fix, and the four checks I ran with their results. It also mentions the `lint` script problem I noticed but didn't fix, and asks one question: whether they want a WARNING log when the health check is skipped. It ends with an AI use section saying what Claude Code helped with and how I checked it.
 
 **Maintainer Feedback:**
 
-- [Date]: [feedback received, or "none yet"; silence is a normal
-  state and costs you nothing]
-- [Date]: [how you addressed it]
+- 2026-10-28: none yet. GitGuardian passed, and the readthedocs and Snyk checks were still pending when I recorded this.
 
-**Status:** [Awaiting review / Iterating / Merged / Closed. The
-status is a fact you record, never a grade: the PR is graded as
-opened.]
+**Status:** Awaiting review
 
 **Toolkit**
 
-- Tool:
-- What it produced:
-- Difficulties:
-- What changed:
+- Tool: the ship-gate, run by hand with `python3 ~/.claude/ship-gate/check_gate.py --branch --base master --title "..." --body-file pr_draft.md`, then through its hook when I ran `gh pr create` in Claude Code, together with the voice guard.
+- What it produced: `ship-gate: PASS` at 18:37 by hand and again at 18:43 through the hook (the description had changed, so it ran fresh): four manifest checks ok, and pr-precheck accepted all 9 checks. The voice guard passed the description, and the PR opened on ICTU/quality-time, not on my fork.
+- Difficulties: the Claude session that ran `gh pr create` edited my `pr_draft.md` first, adding a "🤖 Generated with Claude Code" footer it called "required". Both hooks passed it, because it isn't a voice rule or a PR check, so it went into the PR. The run through the hook also took a few minutes with no output beyond "Waiting…", so it looked stuck.
+- What changed: I read the final body file right before opening a PR, and I say no when a session asks to edit my description. The AI use section already says how I used Claude Code, so the footer adds nothing.
 
 ---
 
