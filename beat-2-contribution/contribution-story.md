@@ -95,26 +95,30 @@ The issue fits what my profile asks for: a small Python backend change in the co
 
 **Problem Description**
 
-[In your own words, what is broken or missing?]
+The collector's health check only tells you whether the collector's main loop is still waking up. If measurement tasks pile up, for example because sources keep timing out, the loop keeps going and keeps writing a fresh timestamp, so Docker reports the container as healthy even though it's falling behind. There's no setting that marks it unhealthy when too many tasks are running at once.
 
 **Expected Behavior**
 
-[What should happen?]
+A new environment variable, `COLLECTOR_RUNNING_TASKS_HEALTHY_THRESHOLD` (default 120), sets how many running tasks are still healthy. When `Collector.running_tasks` holds more than that, `Collector.record_health` doesn't update the health check timestamp, so after 600 seconds the health check fails and the container shows as unhealthy. The default comes from the other defaults: up to 30 new tasks every 20 seconds, each timing out after at most 120 seconds, makes at most (120/20) × 30 = 180 running tasks, and 2/3 of that is 120. The rationale goes in the code and the docs.
 
 **Current Behavior**
 
-[What actually happens?]
+`record_health` writes the timestamp on every wake-up, whatever the number of tasks. In my reproduction, with 200 tasks in `running_tasks`, the health file went from `2000-01-01T00:00:00+00:00` to the current time, and `base_collectors.config` has no threshold setting.
 
 **Affected Components**
 
-[Which parts of the codebase are involved?]
+- `components/collector/src/base_collectors/config.py`: where the collector's environment variables are read
+- `components/collector/src/base_collectors/collector.py`: `Collector.record_health` and `Collector.running_tasks`
+- `components/collector/tests/base_collectors/test_collector.py`: the existing health check tests
+- `docs/src/software.md` (the collector's Health check section and environment variable table) and `docs/src/changelog.md`
+- Not changed but involved: `components/collector/src/healthcheck.py`, the Docker health check, which fails when the timestamp is more than 600 seconds old
 
 **Toolkit**
 
-- Tool:
-- What it produced:
-- Difficulties:
-- What changed:
+- Tool: Claude Code in my quality-time clone, with my `CLAUDE.local.md` memory file loaded. I asked it to trace where the health check timestamp is written and read, and checked each answer against the code myself.
+- What it produced: the four files above, plus `healthcheck.py` (the issue doesn't mention it). Knowing how that script works is what makes "don't update the timestamp" enough to mark the container unhealthy.
+- Difficulties: `docs/src/software.md` says the health check is in the collector's Dockerfile, but there's no `components/collector/Dockerfile`; the actual check is `src/healthcheck.py`. The memory file sped up orientation, but I still had to correct one wrong guess in it about where that check lives.
+- What changed: I recorded the 600-second limit and the `healthcheck.py` location in `CLAUDE.local.md`, so later sessions start from the right facts.
 
 ---
 
@@ -163,67 +167,76 @@ timestamp updated (container reported healthy): True
 
 **Analysis**
 
-[Your analysis of the root cause: what is causing the issue, traced
-to the files and functions involved.]
+`Collector.start` (`components/collector/src/base_collectors/collector.py`) calls `self.record_health()` every time the collector wakes up, before it starts new tasks. `record_health` is a `@staticmethod` that writes `iso_timestamp()` to `config.HEALTH_CHECK_FILE` unconditionally. Being static, it can't see `self.running_tasks`, the set where `collect_metrics` keeps every measurement task until its done-callback removes it. `components/collector/src/healthcheck.py` only checks that the timestamp is at most 600 seconds old. So the health check measures "the loop is alive", and nothing connects it to the task count. `base_collectors/config.py` has no threshold to compare against.
 
 **Proposed Solution**
 
-[High-level description of your fix approach, and what you are
-deliberately NOT changing.]
+Add `RUNNING_TASKS_HEALTHY_THRESHOLD = int(os.getenv("COLLECTOR_RUNNING_TASKS_HEALTHY_THRESHOLD", "120"))` to `config.py`, with the issue's rationale in a comment. Turn `record_health` into an instance method that returns without writing when `len(self.running_tasks)` is greater than the threshold. "Exceeds" means strictly greater, so exactly 120 is still healthy. Document the variable in the collector's environment variable table and Health check section in `docs/src/software.md`, and add a changelog entry.
+
+Not changing: `healthcheck.py` and its 600-second limit, the WARNING in `__log_tasks` (a separate `MEASUREMENT_LIMIT` threshold), how tasks are created or cancelled, and the notifier's health check. I'm not adding any new logging either, since the issue doesn't ask for it.
 
 **Implementation Plan**
 
-1. [Modify file X to do Y]
-2. [Add or change Z]
-3. [Update tests]
+1. In `components/collector/tests/base_collectors/test_collector.py`, add a test that fills `running_tasks` with one more task than a patched `RUNNING_TASKS_HEALTHY_THRESHOLD` and asserts the health file is not opened, plus a boundary test where the count equals the threshold and the timestamp is still written. Run it to see it fail on master.
+2. In `components/collector/src/base_collectors/config.py`, add `RUNNING_TASKS_HEALTHY_THRESHOLD` (default 120) with the rationale comment.
+3. In `components/collector/src/base_collectors/collector.py`, drop `@staticmethod` from `record_health` and return early when `len(self.running_tasks) > config.RUNNING_TASKS_HEALTHY_THRESHOLD`. Keep the existing `OSError` handling as it is.
+4. In `docs/src/software.md`, add the variable to the collector's environment variable table with its default and rationale, and add a sentence to the Health check section.
+5. In `docs/src/changelog.md`, add an entry under `## [Unreleased]` → `### Added` ending "Closes [#8507](https://github.com/ICTU/quality-time/issues/8507)."
+6. Run `just test` and `just check` in `components/collector` and `just check` in `docs`, then rerun my reproduction script on the branch.
 
-[Record deviations here as they happen: what changed mid-build and
-why. A recorded deviation is honest work; silent drift is not.]
+Deviations (2026-10-28): (1) Step 4: the new row was wider than the table's columns, and markdownlint's MD060 rule needs aligned tables, so I realigned the whole collector environment variable table. Every row is re-padded, but the only new text is my row. (2) Step 5: the changelog links to `software.md#collector`, because `#health-check` would point at the Frontend's Health check section. (3) Step 1: the new tests only error with `AttributeError` until the config setting exists, so I added step 2's setting first to see the real failure.
 
 **Toolkit**
 
-- Tool:
-- What it produced:
-- Difficulties:
-- What changed:
+- Tool: plan-check, with the wild scope from Unit 6. I ran `plan-check: grade my plan in plan.md and draft comment in plan-comment.md for issue <URL>` from my clone. The comment stays local and isn't posted.
+- What it produced: accept on all 7 checks on the first run. It checked the plan against the source itself ("`record_health` is indeed a bare `@staticmethod` called unconditionally in `start()`") and noted that no maintainer had commented yet, so there was no direction for the plan to follow or depart from.
+- Difficulties: it reported "`voice-guide.md` does not exist in the installed skill directory", so it skipped the voice pass. The file was there, but as the symlink from the Unit 6 install, and the skill's file search doesn't follow symlinks. An accept that silently skips part of its check is easy to miss.
+- What changed: I replaced the symlinks in repro-check, plan-check, and pr-precheck with INSTALL.md's fallback, a one-line file pointing at `~/.claude/voice-guard/voice-guide.md`, and ran the voice guard's manual check on `plan-comment.md`, which passed. No plan changes were needed.
 
 ---
 
 ## Testing Strategy
 
-[What observable checks prove the fix: your reproduction steps re-run
-against the built change (before and after), and the repo's own test
-suite or checks with the outcome shown. "Tests pass" with nothing
-observable named is not a strategy.]
+Four things prove the fix, each with output I can show:
+
+1. **My reproduction, rerun before and after.** The same script (200 pending tasks in `running_tasks`, an old timestamp in the health file, then `record_health()`) on master and on my branch:
+
+   ```
+   master: health file after:  2026-10-28T23:31:07.077992+00:00
+           timestamp updated (container reported healthy): True
+   branch: health file after:  2000-01-01T00:00:00+00:00
+           timestamp updated (container reported healthy): False
+   ```
+
+2. **A new test that fails without the fix.** `test_skip_writing_health_check_when_too_many_tasks_are_running` patches the threshold to 2, adds 3 running tasks, and asserts the health file is never opened. With only the config setting added and `record_health` unchanged, it fails with `AssertionError: Expected 'open' to not have been called. Called 1 times.` With the fix, it passes.
+3. **A boundary test.** `test_writing_health_check_when_running_tasks_equal_threshold` adds exactly 2 tasks with the threshold at 2 and asserts the timestamp is still written, because the issue says "exceeds". The two existing health check tests still pass unchanged, which shows that turning `record_health` into an instance method didn't break them.
+4. **The repo's own checks, from my ship manifest, each in a fresh shell.** `just test` and `just check` in `components/collector` and `just check` in `docs` all exit 0, the full collector suite is `Ran 776 tests ... OK` (774 on master plus my 2), and markdownlint on `software.md` and `changelog.md` exits 0.
 
 **Toolkit**
 
-- Tool:
-- What it produced:
-- Difficulties:
-- What changed:
+- Tool: my ship manifest's checks, run by hand in fresh login shells (`env -i HOME=$HOME /bin/zsh -lc`), the same way the ship-gate runs them, plus my repro script and the new unit tests. Everything went into `test_evidence.md` in my clone.
+- What it produced: before/after output, the new test failing on the real behavior and then passing, and exit 0 on all four manifest checks.
+- Difficulties: the docs check passed while hiding a real failure. `docs/package.json` runs `markdownlint src/**/*.md; lockfile-lint`, so the `;` makes `npm-lint` report OK even when markdownlint fails. On my Mac, markdownlint was actually crashing on Node v19. Once I ran it on Node 26, it failed my first version of the new table row (MD060, columns not aligned). It also reports 20 old errors in `deployment.md` and `versioning.md`, which fail on master too.
+- What changed: I ran markdownlint as its own manifest row on the two files I change, using Homebrew's Node 26, and moved the whole-docs run into the excluded table with the date and the master failures as the reason. I realigned the table so it passes, and added `SSL_CERT_FILE=/etc/ssl/cert.pem` to the docs row, since vale's setup download failed on python.org's Python certificates.
 
 ---
 
 ## Implementation Notes
 
-[A running log, added to as you work. Date each entry. What you
-built, decisions you made when you made them, wrong turns included.]
+**2026-10-28**
 
-**[Date]**
+Synced my clone with upstream `master` (now `c4cb9d77d`) and made the branch `fix/8507-running-tasks-health`. I wrote the two tests first. On unchanged code they only errored with `AttributeError` (the setting didn't exist), which doesn't test the bug. So I added the `config.py` setting on its own and ran them again: the over-threshold test then failed for the real reason, with `open` called once. Then I changed `record_health`. I made it an instance method and return before touching the file, not after the `try`, so the existing `OSError` handling stays exactly as it was. I used real `asyncio` tasks in the tests instead of `Mock` objects, because `running_tasks` is typed `set[asyncio.Task]` and the repo runs mypy and ty on tests.
 
-[Entry]
+**2026-10-28**
 
-**[Date]**
-
-[Entry]
+The docs took longer than the code. My first version of the new environment variable row broke markdownlint's aligned-table rule, because the variable name is wider than the column. I realigned the collector's table, which re-pads every row, though the only new text is my row. That's a deviation from the plan, which only said "add the variable". I also shortened the row's description so the table didn't get much wider. In the changelog I first linked `software.md#health-check`, then found that `software.md` has nine "Health check" headings and the first one is the Frontend's, so I linked `#collector` instead.
 
 **Toolkit**
 
-- Tool:
-- What it produced:
-- Difficulties:
-- What changed:
+- Tool: Claude Code in my clone, with `CLAUDE.local.md` loaded, writing the changes one plan step at a time. I ran the tests after each step.
+- What it produced: the diff (config setting, `record_health` change, 2 tests, docs row and sentence, changelog entry) and the before/after test runs.
+- Difficulties: two edits were refused because the file hadn't been read in that session yet. One refusal came back while a "before the fix" test run was already going, so that run used the old file. I only caught it because the output was the same `AttributeError` as before. The table formatting was invisible until markdownlint actually ran.
+- What changed: after every edit, I check the test output against what that edit should change before moving on, and I added the realigned table and the `#collector` anchor to the plan's deviations.
 
 ---
 
