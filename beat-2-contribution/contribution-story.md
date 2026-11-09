@@ -66,10 +66,9 @@ I merged my three copies of the voice guide into one at `~/.claude/voice-guard/v
 
 My manifest runs the same `just test` and `just check` that the repo's CI runs in `components/collector` and `docs`, plus markdownlint on the two docs files I change, each in a fresh shell. The ship-gate passed my branch twice, once by hand at 18:37 and once through the hook when the PR opened: all four checks ok, and pr-precheck accepted all 9 checks, with the realigned docs table as the closest call. What fought me was the docs check passing while hiding a failure: the repo's `lint` script ends in `; lockfile-lint`, so markdownlint was crashing on my Node v19 and still showing OK; running it on Node 26 as its own row caught a real table error in my change, and I moved the 20 errors that also fail on master into the excluded table instead of dropping the check. One more thing slipped past both hooks: the Claude session I used to open the PR added a "🤖 Generated with Claude Code" footer to my description on its own, and neither guard is meant to catch a line like that, so from now on I read the final body file right before posting.
 
-**Unit 8: [one line on the tool work]**
+**Unit 8: Ran the PR monitor on my PR, and its draft missed both of my reviewer's inline comments (2026-11-08)**
 
-[2-4 sentences: the PR-monitor and your playbook. What it read, what it
-drafted, what you did with the draft.]
+I installed the monitor and had Claude Code draft my playbook from how quality-time actually behaves: CONTRIBUTING.md gives no wait and outside contributors' first maintainer response ranged from under a day to 26.7 days, so I set my nudge at 10 quiet days. On PR #14917 the monitor correctly read the state as changes requested and caught a merge conflict, but it drafted a reply telling the maintainer the review "didn't include any comments" and asking what they wanted changed, and I didn't send it. fniessink had left two specific inline comments, and the monitor only calls `gh pr view`, which returns the review's empty top-level text but not comments on lines of the diff, so its "1 comment(s)/review(s)" count had the same blind spot. I added a playbook rule to read the inline comments with `gh api` before trusting a draft, and the change I'd still make is having the monitor fetch them itself.
 
 ---
 
@@ -230,6 +229,10 @@ Synced my clone with upstream `master` (now `c4cb9d77d`) and made the branch `fi
 
 The docs took longer than the code. My first version of the new environment variable row broke markdownlint's aligned-table rule, because the variable name is wider than the column. I realigned the collector's table, which re-pads every row, though the only new text is my row. That's a deviation from the plan, which only said "add the variable". I also shortened the row's description so the table didn't get much wider. In the changelog I first linked `software.md#health-check`, then found that `software.md` has nine "Health check" headings and the first one is the Frontend's, so I linked `#collector` instead.
 
+**2026-11-08**
+
+Read fniessink's review from 2026-11-02 with `gh api`, since the review itself has no top-level text. Both comments change my design. The threshold in `config.py` should be calculated from the other settings instead of hardcoded at 120, and `record_health` should write the running task count and a healthy/unhealthy verdict that `healthcheck.py` reads, instead of skipping the write. That second one reverses my plan's decision to leave `healthcheck.py` alone. My branch also now conflicts with master. A dry run with `git merge-tree` shows the conflict is only in `docs/src/software.md`, and `changelog.md` merges cleanly. I haven't started these changes or the rebase yet.
+
 **Toolkit**
 
 - Tool: Claude Code in my clone, with `CLAUDE.local.md` loaded, writing the changes one plan step at a time. I ran the tests after each step.
@@ -247,9 +250,10 @@ The docs took longer than the code. My first version of the new environment vari
 
 **Maintainer Feedback:**
 
-- 2026-10-28: none yet. GitGuardian passed, and the readthedocs and Snyk checks were still pending when I recorded this.
+- 2026-11-02: fniessink requested changes with two inline comments: calculate `RUNNING_TASKS_HEALTHY_THRESHOLD` from the measurement settings so it can't go stale when an operator changes them, and write the running task count and a healthy/unhealthy verdict to the health file for `healthcheck.py` to read, so someone debugging can see why the collector is unhealthy.
+- 2026-11-08: not answered on the thread yet. The PR monitor's draft claimed the review had no comments, so I didn't send it. Next I'll make both changes, rebase onto master to clear the conflict in `docs/src/software.md`, push it all at once, and then reply and re-request review.
 
-**Status:** Awaiting review
+**Status:** Iterating
 
 **Toolkit**
 
@@ -264,25 +268,30 @@ The docs took longer than the code. My first version of the new environment vari
 
 **Technical Skills Gained**
 
-[What you learned technically, named concretely.]
+- How a Docker health check can work from the inside: the collector writes a timestamp to a file, and `healthcheck.py` fails once that timestamp is more than 600 seconds old.
+- How a Python service reads its settings from environment variables in one config module, and why a default worked out from other settings goes stale if it's hardcoded (the first point in my review).
+- Testing async code with real `asyncio` tasks instead of `Mock` objects so the types still pass mypy and ty, and checking that a new test fails for the right reason, not just with an `AttributeError`.
+- Running a real project's checks with `uv` and `just`, and reading what they actually do: a `;` in a `lint` script can report OK while markdownlint fails.
+- GitHub's data has layers: `gh pr view` returns a review's top-level text, while inline comments come from `gh api repos/<owner>/<repo>/pulls/<number>/comments`. `git merge-tree` shows conflicts before I start a rebase.
 
 **Challenges Overcome**
 
-[What was hard and how you solved it; point at the real events, the
-Toolkit blocks above are full of them.]
+Finding an issue was the hardest part. My two scout scans accepted 0 of 10 and my first 8 hand-graded picks were rejected, because claims sit in comment text that ranking can't read. Pre-checking 500 saved issues against the GitHub API cut them to 27, and that's what surfaced #8507.
+
+My tools also passed things they shouldn't have, or disagreed. repro-check accepted a claim that my voice guard stopped, plan-check quietly skipped its voice pass because of a symlink, the docs check said OK while markdownlint was crashing on Node v19, and a Claude session added a footer to my PR description that both hooks let through. The PR monitor did the same thing this week by drafting a reply that said my reviewer left no comments. Each time the fix was to look at the raw output myself: running markdownlint as its own manifest row, replacing the symlinks, and reading inline comments directly.
 
 **What I'd Do Differently Next Time**
 
-[Reflection on your process.]
+I'd post my plan on the issue before building. My plan comment stayed local, so the maintainer's first look at my design was the finished PR, and the review then changed both the threshold and how `healthcheck.py` gets its answer. A short comment naming those two decisions could have caught that before I wrote the code and docs.
+
+I'd also run the cheap API pre-check before any grading when I look for an issue, read the final PR body right before opening it, and read a PR's whole thread on GitHub before I trust any tool's summary of it. And I'd check my PR more often while it's open: the review came in on 2026-11-02 and I didn't get to it until 2026-11-08, by which time the branch had also picked up a conflict.
 
 ---
 
 ## Resources Used
 
-[What actually helped, not a reading list. List things this story
-already shows you using: the doc you followed to set the environment
-up, the thread that explained the bug, the person who answered you.
-One real entry beats ten plausible ones.]
-
-- [Link to documentation that helped]
-- [Discussion, issue, or post that helped]
+- [Issue #8507](https://github.com/ICTU/quality-time/issues/8507): the maintainer's write-up named the environment variable, the default, the method, and the reasoning behind 120.
+- [Developer manual](https://github.com/ICTU/quality-time/blob/master/docs/src/development.md): the prerequisites and `uv`/`just` setup I followed to run the collector's tests.
+- [CONTRIBUTING.md](https://github.com/ICTU/quality-time/blob/master/CONTRIBUTING.md) and [AGENTS.md](https://github.com/ICTU/quality-time/blob/master/AGENTS.md): how the repo wants PRs titled and described, and that it doesn't restrict AI use.
+- [`healthcheck.py`](https://github.com/ICTU/quality-time/blob/master/components/collector/src/healthcheck.py): the script that reads the health file, which the issue doesn't mention.
+- [fniessink's review on PR #14917](https://github.com/ICTU/quality-time/pull/14917/files): the two inline comments that showed me what my design missed.
